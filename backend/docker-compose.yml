@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: invoices-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: invoices
+      POSTGRES_USER: invoices_user
+      POSTGRES_PASSWORD: invoices_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

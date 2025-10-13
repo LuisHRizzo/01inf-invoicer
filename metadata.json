@@ -1,0 +1,5 @@
+{
+  "name": "Generador de Facturas Pro",
+  "description": "Una aplicación web para crear, gestionar y exportar facturas profesionales para sus clientes y servicios. Agregue clientes fácilmente, liste servicios y descargue sus facturas en formato PDF.",
+  "requestFramePermissions": []
+}
