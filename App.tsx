@@ -15,7 +15,7 @@ import {
 declare const jspdf: any;
 declare const html2canvas: any;
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '');
 
 
 const App: React.FC = () => {
