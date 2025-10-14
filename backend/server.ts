@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pool from './db';
-import { Invoice, InvoiceItem } from '../types';
+import { Invoice, InvoiceItem } from '../types.js';
 
 dotenv.config();
 
@@ -125,7 +125,7 @@ app.post('/api/invoices', async (req, res) => {
         const newInvoiceRes = await client.query(invoiceQuery, invoiceValues);
         const newInvoice = newInvoiceRes.rows[0];
 
-        const itemPromises = items.map(item => {
+        const itemPromises = items.map((item: InvoiceItem) => {
             const itemQuery = `
                 INSERT INTO invoice_items (invoice_id, description, quantity, price) 
                 VALUES ($1, $2, $3, $4)`;
@@ -135,7 +135,7 @@ app.post('/api/invoices', async (req, res) => {
 
         await client.query('COMMIT');
 
-        const finalInvoice = { ...newInvoice, items: items.map(item => ({...item, invoice_id: newInvoice.id})) };
+        const finalInvoice = { ...newInvoice, items: items.map((item: InvoiceItem) => ({...item, invoice_id: newInvoice.id})) };
         res.status(201).json(snakeToCamel(finalInvoice));
 
     } catch (err) {
@@ -165,7 +165,7 @@ app.put('/api/invoices/:id', async (req, res) => {
         
         await client.query('DELETE FROM invoice_items WHERE invoice_id = $1', [id]);
 
-        const itemPromises = items.map(item => {
+        const itemPromises = items.map((item: InvoiceItem) => {
             const itemQuery = `
                 INSERT INTO invoice_items (invoice_id, description, quantity, price) 
                 VALUES ($1, $2, $3, $4)`;
