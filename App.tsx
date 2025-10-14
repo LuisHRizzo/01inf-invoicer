@@ -15,7 +15,8 @@ import {
 declare const jspdf: any;
 declare const html2canvas: any;
 
-const API_BASE_URL = "http://localhost:3001";
+const API_BASE_URL = import.meta.env.API_BASE_URL;
+
 
 const App: React.FC = () => {
   // --- STATE MANAGEMENT ---
