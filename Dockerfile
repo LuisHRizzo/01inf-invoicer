@@ -1,5 +1,5 @@
 # Usa una imagen base de Node.js
-FROM node:22
+FROM node:22-alpine
 
 # Establece el directorio de trabajo dentro del contenedor
 WORKDIR /app
@@ -18,10 +18,10 @@ RUN pnpm run build
 
 # Sirve la aplicación con un servidor web ligero (por ejemplo, Nginx o serve)
 # Para simplificar, usaremos serve. Primero, instalamos serve globalmente.
-RUN pnpm install serve
+# RUN pnpm install serve
 
 # Expone el puerto en el que se ejecuta la aplicación
-EXPOSE 3000
+EXPOSE 4173
 
 # Comando para iniciar la aplicación
-CMD ["pnpm", "serve" ]
+CMD ["pnpm", "preview" ]
