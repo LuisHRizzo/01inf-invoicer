@@ -12,7 +12,7 @@ const SERVICE_CATEGORIES = ['service', 'product'] as const;
 type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
 
 // --- UTILS ---
-const snakeToCamel = (obj: any) => {
+const snakeToCamel = (obj: any): any => {
     if (typeof obj !== 'object' || obj === null) return obj;
     if (Array.isArray(obj)) return obj.map(snakeToCamel);
     return Object.keys(obj).reduce((acc, key) => {
