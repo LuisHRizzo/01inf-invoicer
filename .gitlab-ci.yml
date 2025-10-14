@@ -1,0 +1,57 @@
+variables:
+  DOCKER_REGISTRY: $CI_REGISTRY
+  DOCKER_IMAGE_BACKEND: $CI_REGISTRY_IMAGE/backend
+  DOCKER_IMAGE_FRONTEND: $CI_REGISTRY_IMAGE/frontend
+  DOCKER_TAG: $CI_COMMIT_REF_SLUG
+
+stages:
+  - build
+  - push
+
+.docker_build_template: &docker_build_definition
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_NAME:$DOCKER_TAG $CONTEXT_PATH
+    - docker push $IMAGE_NAME:$DOCKER_TAG
+
+build_backend:
+  stage: build
+  extends: .docker_build_template
+  variables:
+    IMAGE_NAME: $DOCKER_IMAGE_BACKEND
+    CONTEXT_PATH: ./backend
+
+build_frontend:
+  stage: build
+  extends: .docker_build_template
+  variables:
+    IMAGE_NAME: $DOCKER_IMAGE_FRONTEND
+    CONTEXT_PATH: .
+
+push_backend:
+  stage: push
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker push $DOCKER_IMAGE_BACKEND:$DOCKER_TAG
+  only:
+    - main
+
+push_frontend:
+  stage: push
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker push $DOCKER_IMAGE_FRONTEND:$DOCKER_TAG
+  only:
+    - main

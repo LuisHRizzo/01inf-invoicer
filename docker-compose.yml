@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: invoices-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: invoices
+      POSTGRES_USER: invoices_user
+      POSTGRES_PASSWORD: invoices_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: invoice-backend
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgres://invoices_user:invoices_pass@postgres:5432/invoices
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: invoice-frontend
+    restart: unless-stopped
+    environment:
+      VITE_APP_BACKEND_URL: http://localhost:3001/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
