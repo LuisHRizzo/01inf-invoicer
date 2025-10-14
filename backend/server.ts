@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pool from './db';
-import { Invoice, InvoiceItem } from '../types.js';
+import { Invoice, InvoiceItem } from './types.js';
 
 dotenv.config();
 
