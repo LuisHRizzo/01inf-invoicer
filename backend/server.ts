@@ -71,6 +71,52 @@ app.post('/api/customers', async (req, res) => {
     }
 });
 
+// PUT update an existing customer
+app.put('/api/customers/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, address, email, taxId } = req.body;
+
+        if (!name || !email) {
+            return res.status(400).json({ error: 'El nombre y el email son obligatorios.' });
+        }
+
+        const updatedCustomer = await pool.query(
+            "UPDATE customers SET name = $1, address = $2, email = $3, tax_id = $4 WHERE id = $5 RETURNING *",
+            [name, address, email, taxId, id]
+        );
+
+        if (updatedCustomer.rowCount === 0) {
+            return res.status(404).json({ error: 'Cliente no encontrado' });
+        }
+
+        res.status(200).json(snakeToCamel(updatedCustomer.rows[0]));
+    } catch (err) {
+        console.error((err as Error).message);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// DELETE an existing customer
+app.delete('/api/customers/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const deleteResult = await pool.query("DELETE FROM customers WHERE id = $1 RETURNING id", [id]);
+
+        if (deleteResult.rowCount === 0) {
+            return res.status(404).json({ error: 'Cliente no encontrado' });
+        }
+
+        return res.status(200).json({ message: 'Cliente eliminado correctamente' });
+    } catch (err: any) {
+        if (err?.code === '23503') {
+            return res.status(409).json({ error: 'No es posible eliminar el cliente porque tiene facturas asociadas.' });
+        }
+        console.error((err as Error).message);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 // POST a new service/product
 app.post('/api/services', async (req, res) => {
     try {
@@ -99,9 +145,74 @@ app.post('/api/services', async (req, res) => {
         );
 
         const savedService = snakeToCamel(insertResult.rows[0]);
-        savedService.price = Number(savedService.price);
+            savedService.price = Number(savedService.price);
 
         res.status(201).json(savedService);
+    } catch (err) {
+        if ((err as any)?.code === '23505') {
+            return res.status(409).json({ error: 'Ya existe un servicio o producto con esa descripción.' });
+        }
+        console.error((err as Error).message);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// DELETE a service/product
+app.delete('/api/services/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const deleteResult = await pool.query("DELETE FROM services WHERE id = $1 RETURNING id", [id]);
+
+        if (deleteResult.rowCount === 0) {
+            return res.status(404).json({ error: 'Servicio no encontrado' });
+        }
+
+        res.status(200).json({ message: 'Servicio eliminado correctamente' });
+    } catch (err) {
+        console.error((err as Error).message);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PUT update of a service/product
+app.put('/api/services/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { description, price, category } = req.body as { description?: string; price?: number | string; category?: string };
+
+        const trimmedDescription = description?.trim();
+        const parsedPrice = typeof price === 'string' ? parseFloat(price) : price;
+        const requestedCategory = typeof category === 'string' ? category.toLowerCase() : 'service';
+        const normalizedCategory: ServiceCategory = SERVICE_CATEGORIES.includes(requestedCategory as ServiceCategory)
+            ? (requestedCategory as ServiceCategory)
+            : 'service';
+
+        if (!trimmedDescription) {
+            return res.status(400).json({ error: 'La descripción es obligatoria.' });
+        }
+
+        if (parsedPrice === undefined || Number.isNaN(parsedPrice) || parsedPrice < 0) {
+            return res.status(400).json({ error: 'El precio debe ser un número mayor o igual a 0.' });
+        }
+
+        const updateResult = await pool.query(
+            `UPDATE services
+             SET description = $1,
+                 price = $2,
+                 category = $3
+             WHERE id = $4
+             RETURNING *`,
+            [trimmedDescription, parsedPrice, normalizedCategory, id]
+        );
+
+        if (updateResult.rowCount === 0) {
+            return res.status(404).json({ error: 'Servicio no encontrado' });
+        }
+
+        const updatedService = snakeToCamel(updateResult.rows[0]);
+        updatedService.price = Number(updatedService.price);
+
+        res.status(200).json(updatedService);
     } catch (err) {
         if ((err as any)?.code === '23505') {
             return res.status(409).json({ error: 'Ya existe un servicio o producto con esa descripción.' });
