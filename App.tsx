@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import type { Invoice, Customer, Service } from "./types";
+import type { Invoice, Customer, Service } from "./src/types"; // Actualizado para la nueva ruta de tipos
 import InvoiceForm from "./components/InvoiceForm";
 import InvoicePreview from "./components/InvoicePreview";
 import CustomerModal from "./components/CustomerModal";
@@ -15,11 +15,44 @@ import {
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
 import { buildInvoicePdfDefinition } from "./utils/pdfDefinition";
+import { calculateInvoiceTotals, sanitizeInvoice } from "./utils/invoiceHelpers";
 
-const resolvedFonts =
-  (pdfFonts as any)?.pdfMake?.vfs ?? (pdfFonts as any)?.vfs ?? pdfFonts;
-(pdfMake as any).vfs = resolvedFonts;
-(pdfMake as any).fonts = {
+import { useInvoices } from "./src/hooks/useInvoices";
+import { getCustomers, saveCustomer, deleteCustomer } from "./src/api/customers";
+import { getServices, saveService, deleteService } from "./src/api/services";
+
+type VirtualFileSystem = Record<string, string>;
+
+type PdfFontsModule = {
+  pdfMake?: { vfs?: VirtualFileSystem };
+  vfs?: VirtualFileSystem;
+};
+
+type PdfMakeWithAssets = typeof pdfMake & {
+  vfs?: VirtualFileSystem;
+  fonts?: Record<
+    string,
+    {
+      normal: string;
+      bold: string;
+      italics: string;
+      bolditalics: string;
+    }
+  >;
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error && error.message ? error.message : fallback;
+
+const pdfFontsModule = pdfFonts as unknown as PdfFontsModule;
+const resolvedFonts: VirtualFileSystem =
+  pdfFontsModule.pdfMake?.vfs ??
+  pdfFontsModule.vfs ??
+  ({} as VirtualFileSystem);
+
+const pdfMakeWithAssets = pdfMake as PdfMakeWithAssets;
+pdfMakeWithAssets.vfs = resolvedFonts;
+pdfMakeWithAssets.fonts = {
   Roboto: {
     normal: "Roboto-Regular.ttf",
     bold: "Roboto-Medium.ttf",
@@ -28,14 +61,10 @@ const resolvedFonts =
   },
 };
 
-const API_BASE_URL = (process.env.VITE_APP_BACKEND_URL ?? '').replace(/\/+$/, '');
-
-
 const App: React.FC = () => {
   // --- STATE MANAGEMENT ---
   const [view, setView] = useState<"list" | "editor">("list");
   const [activeSection, setActiveSection] = useState<"invoices" | "services" | "customers">("invoices");
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [currentInvoice, setCurrentInvoice] = useState<Invoice | null>(null);
@@ -68,6 +97,25 @@ const App: React.FC = () => {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Usar el hook useInvoices
+  const {
+    invoices,
+    loading: invoicesLoading,
+    error: invoicesError,
+    handleCreateNewInvoice,
+    handleEditInvoice,
+    handleDeleteInvoice,
+    handleSaveInvoice,
+  } = useInvoices(customers, setView, setActiveSection, setCurrentInvoice);
+
+  useEffect(() => {
+    setLoading(invoicesLoading);
+  }, [invoicesLoading]);
+
+  useEffect(() => {
+    setError(invoicesError);
+  }, [invoicesError]);
 
   const filteredServices = useMemo(() => {
     const query = serviceSearchTerm.trim().toLowerCase();
@@ -114,38 +162,47 @@ const App: React.FC = () => {
     });
   }, [customers, customerSearchTerm]);
 
+  const handleCreateNew = () => {
+    handleCreateNewInvoice();
+  };
+
+  const handleEdit = (invoiceId: string) => {
+    handleEditInvoice(invoiceId);
+  };
+
+  const handleDelete = (invoiceId: string) => {
+    handleDeleteInvoice(invoiceId);
+  };
+
+  const handleSave = () => {
+    if (!currentInvoice) {
+      return;
+    }
+    const totals = calculateInvoiceTotals(currentInvoice);
+    const invoiceToSave = sanitizeInvoice({
+      ...currentInvoice,
+      ...totals,
+    });
+
+    void handleSaveInvoice(invoiceToSave);
+  };
+
   // --- DATA FETCHING ---
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/data`);
-        if (!response.ok) {
-          throw new Error(`Error en la red: ${response.statusText}`);
-        }
-        const data = await response.json();
-        setInvoices(data.invoices);
-        setCustomers(data.customers);
-        const normalizedServices: Service[] = (data.services || [])
-          .map((service: any) => {
-            const rawPrice =
-              typeof service.price === "string"
-                ? parseFloat(service.price)
-                : service.price;
-            return {
-              ...service,
-              category: service.category ?? "service",
-              price: Number.isNaN(rawPrice) ? 0 : rawPrice,
-            };
-          })
-          .sort((a: Service, b: Service) =>
-            a.description.localeCompare(b.description)
-          );
-        setServices(normalizedServices);
-      } catch (e: any) {
+        const [customersData, servicesData] = await Promise.all([
+          getCustomers(),
+          getServices(),
+        ]);
+        setCustomers(customersData);
+        setServices(servicesData);
+      } catch (error: unknown) {
+        const message = getErrorMessage(error, "Error desconocido.");
         setError(
-          `No se pudieron cargar los datos. Asegúrate de que el servidor backend est�(c) en ejecución. (${e.message})`
+          `No se pudieron cargar los datos. Asegurate de que el servidor backend esta en ejecucion. (${message})`
         );
-        console.error(e);
+        console.error(error);
       } finally {
         setLoading(false);
       }
@@ -154,158 +211,12 @@ const App: React.FC = () => {
   }, []);
 
   // --- HANDLERS ---
-  const handleCreateNew = () => {
-    const newInvoiceNumber = `FACT-${(invoices.length + 1)
-      .toString()
-      .padStart(3, "0")}`;
-    setCurrentInvoice({
-      id: crypto.randomUUID(), // Temp ID, server will generate real one
-      invoiceNumber: newInvoiceNumber,
-      date: new Date().toISOString().split("T")[0],
-      dueDate: new Date(new Date().setDate(new Date().getDate() + 30))
-        .toISOString()
-        .split("T")[0],
-      customerId: customers.length > 0 ? customers[0].id : null,
-      items: [
-        { id: crypto.randomUUID(), description: "", quantity: 1, price: 0 },
-      ],
-      notes: `Account details
-01 INFINITO LLC
-Bank Account Info - Wise US inc.
-108 W 13th St, Wilmington, 19801, United States
-
-Account Number: 219773714368
-Routing Number: 101019628
-Swift/BIC: TRWIUS35XXX`, // ¡Usamos comillas invertidas (`)!
-      subtotal: 0,
-      tax: 0,
-      taxRate: 21,
-      total: 0,
-      status: "Borrador",
-    });
-    setActiveSection("invoices");
-    setView("editor");
-  };
-
-  const handleEdit = (invoiceId: string) => {
-    const invoiceToEdit = invoices.find((inv) => inv.id === invoiceId);
-    if (invoiceToEdit) {
-      setCurrentInvoice(invoiceToEdit);
-      setActiveSection("invoices");
-      setView("editor");
-    }
-  };
-
-  const handleDelete = async (invoiceId: string) => {
-    if (window.confirm("¿Estás seguro de que quieres eliminar esta factura?")) {
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/invoices/${invoiceId}`,
-          { method: "DELETE" }
-        );
-        if (!response.ok) throw new Error("No se pudo eliminar la factura");
-        setInvoices(invoices.filter((inv) => inv.id !== invoiceId));
-      } catch (e) {
-        console.error(e);
-        alert("Error al eliminar la factura.");
-      }
-    }
-  };
-
-  const handleSaveInvoice = async () => {
-    if (!currentInvoice) return;
-
-    const normalizeDate = (value: unknown, fallback: string) => {
-      if (value instanceof Date) {
-        return value.toISOString().split("T")[0];
-      }
-      if (typeof value === "string") {
-        const trimmed = value.trim();
-        if (!trimmed) return fallback;
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
-          const [day, month, year] = trimmed.split("/");
-          return `${year}-${month}-${day}`;
-        }
-        return trimmed;
-      }
-      return fallback;
-    };
-
-    const subtotal = currentInvoice.items.reduce(
-      (acc, item) => acc + item.quantity * item.price,
-      0
-    );
-    const tax = subtotal * (currentInvoice.taxRate / 100);
-    const total = subtotal + tax;
-
-    const finalInvoice: Invoice = {
-      ...currentInvoice,
-      subtotal,
-      tax,
-      total,
-      status: "Guardada",
-    };
-
-    const normalizedInvoice = {
-      ...finalInvoice,
-      date: normalizeDate(
-        finalInvoice.date,
-        new Date().toISOString().split("T")[0]
-      ),
-      dueDate: normalizeDate(
-        finalInvoice.dueDate,
-        finalInvoice.date ||
-          new Date(new Date().setDate(new Date().getDate() + 30))
-            .toISOString()
-            .split("T")[0]
-      ),
-    };
-
-    const isNew = !invoices.some((inv) => inv.id === finalInvoice.id);
-    const method = isNew ? "POST" : "PUT";
-    const url = isNew
-      ? `${API_BASE_URL}/api/invoices`
-      : `${API_BASE_URL}/api/invoices/${finalInvoice.id}`;
-
-    try {
-      const response = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(normalizedInvoice),
-      });
-      if (!response.ok) throw new Error("No se pudo guardar la factura.");
-      const savedInvoice = await response.json();
-
-      if (isNew) {
-        setInvoices((prev) => [...prev, savedInvoice]);
-      } else {
-        setInvoices((prev) =>
-          prev.map((inv) => (inv.id === savedInvoice.id ? savedInvoice : inv))
-        );
-      }
-      setView("list");
-      setCurrentInvoice(null);
-    } catch (e) {
-      console.error(e);
-      alert("Error al guardar la factura.");
-    }
-  };
 
   const handleSaveCustomer = async (customerPayload: Omit<Customer, "id">) => {
     try {
       const isEditing = Boolean(customerModalState.editingId);
       const customerId = customerModalState.editingId;
-      const url = isEditing
-        ? `${API_BASE_URL}/api/customers/${customerId}`
-        : `${API_BASE_URL}/api/customers`;
-      const method = isEditing ? "PUT" : "POST";
-      const response = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(customerPayload),
-      });
-      if (!response.ok) throw new Error("No se pudo guardar el cliente.");
-      const savedCustomer = await response.json();
+      const savedCustomer = await saveCustomer(customerPayload, customerId);
 
       setCustomers((prev) => {
         const updated = isEditing
@@ -414,41 +325,11 @@ Swift/BIC: TRWIUS35XXX`, // ¡Usamos comillas invertidas (`)!
   const handleSaveService = async (
     serviceInput: Pick<Service, "description" | "price" | "category">
   ) => {
-    const isEditing = Boolean(serviceModalState.editingId);
-    const targetId = serviceModalState.editingId;
-    const endpoint = isEditing && targetId
-      ? `${API_BASE_URL}/api/services/${targetId}`
-      : `${API_BASE_URL}/api/services`;
-    const method = isEditing ? "PUT" : "POST";
-
     try {
-      const response = await fetch(endpoint, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(serviceInput),
-      });
-      if (!response.ok) {
-        const errorResponse = await response.json().catch(() => ({
-          error: "No se pudo guardar el servicio o producto.",
-        }));
-        throw new Error(
-          errorResponse.error || "No se pudo guardar el servicio o producto."
-        );
-      }
-      const savedService: Service = await response.json();
-      const rawCategory =
-        typeof (savedService as any).category === "string"
-          ? (savedService as any).category.toLowerCase()
-          : "service";
-      const rawPrice =
-        typeof (savedService as any).price === "string"
-          ? parseFloat((savedService as any).price)
-          : savedService.price;
-      const normalizedService: Service = {
-        ...savedService,
-        category: rawCategory === "product" ? "product" : "service",
-        price: Number.isNaN(rawPrice) ? 0 : rawPrice,
-      };
+      const isEditing = Boolean(serviceModalState.editingId);
+      const targetId = serviceModalState.editingId;
+      const normalizedService = await saveService(serviceInput, targetId);
+      
       setServices((prev) => {
         const updatedServices = isEditing
           ? prev.map((service) =>
@@ -464,9 +345,9 @@ Swift/BIC: TRWIUS35XXX`, // ¡Usamos comillas invertidas (`)!
         setActiveSection("services");
       }
       closeServiceModal();
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.message || "Error al guardar el servicio o producto.");
+    } catch (error: unknown) {
+      console.error(error);
+      alert(getErrorMessage(error, "Error al guardar el servicio o producto."));
     }
   };
 
@@ -475,19 +356,11 @@ Swift/BIC: TRWIUS35XXX`, // ¡Usamos comillas invertidas (`)!
       return;
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/api/services/${serviceId}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        const errorResponse = await response.json().catch(() => ({}));
-        throw new Error(
-          errorResponse.error || "No se pudo eliminar el servicio o producto."
-        );
-      }
+      await deleteService(serviceId);
       setServices((prev) => prev.filter((service) => service.id !== serviceId));
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.message || "Error al eliminar el servicio o producto.");
+    } catch (error: unknown) {
+      console.error(error);
+      alert(getErrorMessage(error, "Error al eliminar el servicio o producto."));
     }
   };
 
@@ -496,24 +369,16 @@ Swift/BIC: TRWIUS35XXX`, // ¡Usamos comillas invertidas (`)!
       return;
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/api/customers/${customerId}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        const errorResponse = await response.json().catch(() => ({}));
-        throw new Error(
-          errorResponse.error || "No se pudo eliminar el cliente."
-        );
-      }
+      await deleteCustomer(customerId);
       setCustomers((prev) =>
         prev.filter((customer) => customer.id !== customerId)
       );
       setCurrentInvoice((prev) =>
         prev && prev.customerId === customerId ? { ...prev, customerId: null } : prev
       );
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.message || "Error al eliminar el cliente.");
+    } catch (error: unknown) {
+      console.error(error);
+      alert(getErrorMessage(error, "Error al eliminar el cliente."));
     }
   };
 
@@ -608,7 +473,7 @@ Swift/BIC: TRWIUS35XXX`, // ¡Usamos comillas invertidas (`)!
               </button>
               <div className="flex items-center gap-4">
                 <button
-                  onClick={handleSaveInvoice}
+                  onClick={handleSave}
                   className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition-colors"
                 >
                   Guardar Factura
@@ -1017,3 +882,4 @@ Swift/BIC: TRWIUS35XXX`, // ¡Usamos comillas invertidas (`)!
 };
 
 export default App;
+

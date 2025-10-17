@@ -1,5 +1,12 @@
 import type { TDocumentDefinitions } from "pdfmake/interfaces";
-import type { Customer, Invoice, InvoiceItem } from "../types";
+import type { Customer, Invoice, InvoiceItem } from "../src/types";
+import { calculateInvoiceTotals } from "./invoiceHelpers";
+import {
+  formatQuantity,
+  formatCurrency,
+  formatPercentage,
+  formatDate,
+} from "./formatHelpers.js";
 
 const PURPLE_DARK = "#4B2983";
 const PURPLE_LIGHT = "#EAE4F3";
@@ -9,61 +16,6 @@ const PRIMARY_FONT = "Roboto";
 const DEFAULT_FONT_SIZE = 8;
 const PAGE_MARGIN_HORIZONTAL = 20;
 const PAGE_MARGIN_VERTICAL = 30;
-
-const sanitizeNumber = (value: number | string | null | undefined): number => {
-  const numeric = typeof value === "string" ? Number(value) : value ?? 0;
-  return Number.isFinite(numeric) ? Number(numeric) : 0;
-};
-
-const formatQuantity = (value: number): string => {
-  const numeric = sanitizeNumber(value);
-  if (Number.isInteger(numeric)) {
-    return numeric.toString();
-  }
-  return numeric.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-};
-
-const formatCurrency = (value: number): string =>
-  sanitizeNumber(value).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-
-const formatPercentage = (value: number): string =>
-  sanitizeNumber(value).toLocaleString("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-
-const normalizeDate = (value: string | Date | null | undefined): Date | null => {
-  if (!value) return null;
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-
-  if (typeof value === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
-    const [day, month, year] = value.split("/");
-    const parsed = new Date(`${year}-${month}-${day}T00:00:00`);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
-const formatDate = (value: string | Date | null | undefined): string => {
-  const date = normalizeDate(value);
-  if (!date) return "";
-  const local = new Date(date.getTime() + date.getTimezoneOffset() * 60000);
-  const day = String(local.getDate()).padStart(2, "0");
-  const month = String(local.getMonth() + 1).padStart(2, "0");
-  const year = local.getFullYear();
-  return `${day}/${month}/${year}`;
-};
 
 const buildCustomerBlock = (customer: Customer | null) => {
   const lines: Array<{ text: string; bold?: boolean }> = [];
@@ -149,13 +101,8 @@ export const buildInvoicePdfDefinition = (
   invoice: Invoice,
   customer: Customer | null
 ): TDocumentDefinitions => {
-  const subtotal = invoice.items.reduce(
-    (acc, item) => acc + sanitizeNumber(item.quantity) * sanitizeNumber(item.price),
-    0
-  );
-  const taxRate = sanitizeNumber(invoice.taxRate);
-  const taxAmount = subtotal * (taxRate / 100);
-  const total = subtotal + taxAmount;
+  const { subtotal, tax: taxAmount, total } = calculateInvoiceTotals(invoice);
+  const taxRate = invoice.taxRate;
   const shippingHandling = 0;
   const other = 0;
 
@@ -282,6 +229,7 @@ export const buildInvoicePdfDefinition = (
               ],
             },
             layout: {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               fillColor: (_rowIndex: number, _node: any, columnIndex: number) =>
                 columnIndex === 1 ? PURPLE_DARK : undefined,
               hLineColor: () => BORDER_GRAY,

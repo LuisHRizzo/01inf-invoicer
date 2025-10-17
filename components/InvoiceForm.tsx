@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Invoice, Customer, Service } from '../types';
+import type { Invoice, Customer, Service } from '../src/types';
 import InvoiceItemsTable from './InvoiceItemsTable';
 import { AddIcon } from './Icons';
 

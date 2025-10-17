@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pool from './db';
-import { Invoice, InvoiceItem } from './types.js';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { Invoice, InvoiceItem, type Customer, Service } from './types';
 
 dotenv.config();
 
@@ -12,14 +13,16 @@ const SERVICE_CATEGORIES = ['service', 'product'] as const;
 type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
 
 // --- UTILS ---
-const snakeToCamel = (obj: any): any => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const snakeToCamel = <T>(obj: any): T => {
     if (typeof obj !== 'object' || obj === null) return obj;
-    if (Array.isArray(obj)) return obj.map(snakeToCamel);
+    if (Array.isArray(obj)) return obj.map(snakeToCamel) as T;
     return Object.keys(obj).reduce((acc, key) => {
         const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-        acc[camelKey] = snakeToCamel(obj[key]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (acc as any)[camelKey] = snakeToCamel(obj[key]);
         return acc;
-    }, {} as any);
+    }, {} as T);
 };
 
 
@@ -108,8 +111,9 @@ app.delete('/api/customers/:id', async (req, res) => {
         }
 
         return res.status(200).json({ message: 'Cliente eliminado correctamente' });
-    } catch (err: any) {
-        if (err?.code === '23503') {
+    } catch (err: unknown) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (typeof err === 'object' && err !== null && 'code' in err && (err as any).code === '23503') {
             return res.status(409).json({ error: 'No es posible eliminar el cliente porque tiene facturas asociadas.' });
         }
         console.error((err as Error).message);
@@ -144,12 +148,13 @@ app.post('/api/services', async (req, res) => {
             [trimmedDescription, parsedPrice, normalizedCategory]
         );
 
-        const savedService = snakeToCamel(insertResult.rows[0]);
+        const savedService = snakeToCamel<Service>(insertResult.rows[0]);
             savedService.price = Number(savedService.price);
 
         res.status(201).json(savedService);
-    } catch (err) {
-        if ((err as any)?.code === '23505') {
+    } catch (err: unknown) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (typeof err === 'object' && err !== null && 'code' in err && (err as any).code === '23505') {
             return res.status(409).json({ error: 'Ya existe un servicio o producto con esa descripción.' });
         }
         console.error((err as Error).message);
@@ -208,19 +213,20 @@ app.put('/api/services/:id', async (req, res) => {
         if (updateResult.rowCount === 0) {
             return res.status(404).json({ error: 'Servicio no encontrado' });
         }
-
-        const updatedService = snakeToCamel(updateResult.rows[0]);
-        updatedService.price = Number(updatedService.price);
-
-        res.status(200).json(updatedService);
-    } catch (err) {
-        if ((err as any)?.code === '23505') {
-            return res.status(409).json({ error: 'Ya existe un servicio o producto con esa descripción.' });
-        }
-        console.error((err as Error).message);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+ 
+         const updatedService = snakeToCamel<Service>(updateResult.rows[0]);
+         updatedService.price = Number(updatedService.price);
+ 
+         res.status(200).json(updatedService);
+     } catch (err: unknown) {
+         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         if (typeof err === 'object' && err !== null && 'code' in err && (err as any).code === '23505') {
+             return res.status(409).json({ error: 'Ya existe un servicio o producto con esa descripción.' });
+         }
+         console.error((err as Error).message);
+         res.status(500).json({ error: 'Error interno del servidor' });
+     }
+ });
 
 // POST a new invoice
 app.post('/api/invoices', async (req, res) => {
